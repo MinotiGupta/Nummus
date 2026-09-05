@@ -24,7 +24,7 @@ from .root_cause import classify
 from .context_builder import build_context
 from .bandit import select_action, get_posterior_means, eligible_arms
 from .survival_gate import should_hold
-from .knapsack import schedule, compute_ev
+from .knapsack import schedule, compute_ev, scheduler_stats
 from .executor import execute_action
 from .constants import ACTION_COSTS
 
@@ -182,7 +182,8 @@ def run_batch_cycle(db: Session, n_events: int = 200) -> dict:
     # ── Stage 8: Write batch_runs summary ────────────────────────────────────
     recovery_rate      = (total_recovered / total_at_risk * 100) if total_at_risk > 0 else 0.0
     baseline_rate      = (baseline_recovered / total_at_risk * 100) if total_at_risk > 0 else 0.0
-    efficiency         = recovery_rate - baseline_rate   # absolute pp difference
+    efficiency         = recovery_rate - baseline_rate
+    knapsack           = scheduler_stats(selected, deferred)
 
     db.execute(
         text("""
@@ -219,8 +220,9 @@ def run_batch_cycle(db: Session, n_events: int = 200) -> dict:
         "baseline_recovered": round(baseline_recovered, 2),
         "recovery_rate":      round(recovery_rate, 2),
         "baseline_rate":      round(baseline_rate, 2),
-        "efficiency":         round(efficiency, 2),   # pp improvement over baseline
+        "efficiency":         round(efficiency, 2),
         "gated_count":        gated_count,
         "selected_count":     len(selected),
         "deferred_count":     len(deferred),
+        "knapsack":           knapsack,
     }

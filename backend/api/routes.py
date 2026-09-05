@@ -5,6 +5,7 @@ from db.connection import get_db
 from engine.batch_runner import run_batch_cycle
 from engine.bandit import get_bandit_stats
 from engine.context_builder import decode_context, context_label
+from engine.executor import get_cycle_audit_summary
 import json
 
 router = APIRouter()
