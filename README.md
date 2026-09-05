@@ -5,6 +5,33 @@ Nummus is an autonomous agent designed to detect, diagnose, and recover revenue 
 ## Live Demo
 **[View the Live Dashboard](https://nummus-six.vercel.app/)**
 
+## How to Use and Understand the App
+
+This application is designed to simulate and visualize the decision-making process of an AI agent recovering failed payments. To understand how it works, follow this guided tour through the dashboard:
+
+### 1. Run a Batch (Batch Summary Tab)
+- **What to do:** Click the **"Run Next Batch"** button in the top right. 
+- **What happens:** The backend instantly generates 200 synthetic payment failures. The AI agent evaluates every single failure, calculates the Expected Value (EV) of all possible recovery actions (like sending an SMS, waiting 24 hours, or escalating to a human), and strictly packs the most profitable actions into daily budgets.
+- **What to look for:** Watch the **Efficiency vs Baseline** metric. The blue line represents the AI's recovery rate, and the dashed line represents a traditional "static" ruleset. Over time, as the AI learns, you will see its efficiency outpace the baseline. Note how the **Budget Utilisation** bars fill up, proving the agent is respecting operational constraints.
+
+### 2. Watch the Brain Learn (Bandit Convergence Tab)
+- **What to do:** Switch to the **Bandit Convergence** tab and select a **Customer Context** from the dropdown (e.g., `insufficient_funds | high | long | weekday`).
+- **What happens:** This screen visualizes the internal Bayesian math of the agent (Beta-Binomial Thompson Sampling).
+- **What to look for:** Turn on the **"Show Baseline"** toggle. You will see the agent's expected success probability for every possible action. The Error Bars represent the agent's uncertainty (90% credible intervals). As you run more batches, the error bars shrink as the agent becomes highly confident in which action maximizes revenue for that specific type of failure.
+
+### 3. Inspect a Single Decision (Live Event Feed Tab)
+- **What to do:** Switch to the **Live Event Feed** and click on any row in the table to open the **Decision Inspector**.
+- **What happens:** The drawer slides out to reveal the exact, immutable logic the agent used to handle that specific payment failure.
+- **What to look for:**
+  - **Bandit Exploration:** See the exact random probabilities drawn for each eligible action during Thompson Sampling.
+  - **EV Calculation:** See the exact mathematical formula used to rank the action (`Probability × Amount - Cost`).
+  - **Stopping Rule Engine:** Check if the action was allowed, or if it was blocked by the Survival Gate (e.g., the customer was already contacted 4 times, or the payment is highly likely to self-resolve).
+
+### 4. Verify Compliance (Audit Trail Tab)
+- **What to do:** Open the **Audit Trail** tab.
+- **What happens:** This is the compliance view. It proves that the AI is not a "black box."
+- **What to look for:** Every decision is permanently logged. You can clearly see how many actions were deferred simply because the daily budget was full, and how many were intercepted by compliance rules. You can also export the entire decision matrix to a JSON file.
+
 ## Architecture Overview
 
 The system is built on a decoupled architecture featuring a Python/FastAPI backend for algorithmic orchestration and a React/Vite frontend for real-time observability and audit compliance.
