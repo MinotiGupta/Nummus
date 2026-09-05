@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { runBatch, getBatchRuns } from './api/client';
+import { runBatch, getBatchRuns } from '../api/client';
 import { Activity, Zap, Shield, List, AlertCircle } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
