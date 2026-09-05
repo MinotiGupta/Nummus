@@ -40,6 +40,7 @@ export default function ConvergenceView() {
   const [stats, setStats]           = useState(null);
   const [loading, setLoading]       = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [showBaseline, setShowBaseline] = useState(false);
 
   const fetchContexts = useCallback(async () => {
     try {
@@ -105,6 +106,15 @@ export default function ConvergenceView() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <label className="toggle-label" style={{ marginRight: '1rem' }}>
+            <input
+              type="checkbox"
+              checked={showBaseline}
+              onChange={(e) => setShowBaseline(e.target.checked)}
+              style={{ marginRight: '0.4rem' }}
+            />
+            Show Baseline
+          </label>
           <label className="toggle-label">
             <input
               type="checkbox"
@@ -184,6 +194,14 @@ export default function ConvergenceView() {
               <YAxis type="category" dataKey="label" stroke="var(--text-2)" width={170} tick={{ fontSize: 12 }} />
               <Tooltip content={<ArmTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
               <ReferenceLine x={50} stroke="var(--border)" strokeDasharray="4 4" label={{ value: '50%', fill: 'var(--text-2)', fontSize: 11 }} />
+              {showBaseline && chartData.find(a => a.arm === 'hold_no_action') && (
+                <ReferenceLine 
+                  x={chartData.find(a => a.arm === 'hold_no_action').pct} 
+                  stroke="var(--warning)" 
+                  strokeDasharray="3 3" 
+                  label={{ value: 'Baseline', fill: 'var(--warning)', fontSize: 11, position: 'top' }} 
+                />
+              )}
               <Bar dataKey="pct" name="Success Probability %" radius={[0, 4, 4, 0]}>
                 {chartData.map((entry) => (
                   <Cell key={entry.arm} fill={ARM_COLORS[entry.arm] ?? 'var(--accent)'} />

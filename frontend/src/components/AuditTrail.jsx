@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getDecisions, getBatchRuns, getCycleAudit } from '../api/client';
-import { Search, List, ShieldAlert, CheckCircle, Clock } from 'lucide-react';
+import { Search, List, ShieldAlert, CheckCircle, Clock, Download } from 'lucide-react';
 
 export default function AuditTrail() {
   const [runs, setRuns]             = useState([]);
@@ -39,6 +39,19 @@ export default function AuditTrail() {
 
   useEffect(() => { fetchRuns(); }, []);
   useEffect(() => { fetchRunDetails(selectedRun); }, [selectedRun, fetchRunDetails]);
+
+  const handleExport = () => {
+    const json = JSON.stringify(decisions, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `decisions_${selectedRun || 'all'}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div>
@@ -93,10 +106,13 @@ export default function AuditTrail() {
       )}
 
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)' }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
             <List size={18} /> Detailed Decision Log
           </h3>
+          <button className="btn btn-ghost" onClick={handleExport} disabled={decisions.length === 0} style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}>
+            <Download size={14} /> Export JSON
+          </button>
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table>

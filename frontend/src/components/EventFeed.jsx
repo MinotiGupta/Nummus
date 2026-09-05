@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getEvents } from '../api/client';
-import { RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle } from 'lucide-react';
+import DecisionInspector from './DecisionInspector';
+import { RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, Filter } from 'lucide-react';
 
 const fmt = (v) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(v);
 
@@ -33,8 +34,11 @@ function OutcomeBadge({ label }) {
 export default function EventFeed() {
   const [events, setEvents]     = useState([]);
   const [filter, setFilter]     = useState('all');
+  const [causeFilter, setCauseFilter] = useState('');
   const [loading, setLoading]   = useState(false);
   const [counts, setCounts]     = useState({});
+  const [inspectDecisionId, setInspectDecisionId] = useState(null);
+  const [inspectAmount, setInspectAmount] = useState(0);
 
   const fetchEvents = useCallback(async () => {
     setLoading(true);
@@ -62,7 +66,11 @@ export default function EventFeed() {
     { key: 'held',      label: 'Held' },
   ];
 
-  const visible = filter === 'all' ? events : events.filter((e) => e.outcome_label === filter);
+  const visible = events.filter((e) => {
+    if (filter !== 'all' && e.outcome_label !== filter) return false;
+    if (causeFilter && e.root_cause !== causeFilter) return false;
+    return true;
+  });
 
   // Summary stats
   const totalAt   = events.reduce((s, e) => s + e.amount, 0);
@@ -105,20 +113,36 @@ export default function EventFeed() {
         </div>
       )}
 
-      {/* Filter tabs */}
-      <div className="filter-tabs" style={{ marginBottom: '1rem' }}>
-        {FILTERS.map(({ key, label }) => (
-          <button
-            key={key}
-            className={`filter-tab ${filter === key ? 'active' : ''}`}
-            onClick={() => setFilter(key)}
+      {/* Filter tabs & Root Cause select */}
+      <div className="filter-tabs" style={{ marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          {FILTERS.map(({ key, label }) => (
+            <button
+              key={key}
+              className={`filter-tab ${filter === key ? 'active' : ''}`}
+              onClick={() => setFilter(key)}
+            >
+              {label}
+              {counts[key] !== undefined && (
+                <span className="tab-count">{counts[key]}</span>
+              )}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <Filter size={16} color="var(--text-2)" />
+          <select 
+            className="context-select" 
+            style={{ width: 'auto', padding: '0.4rem 2rem 0.4rem 0.75rem' }}
+            value={causeFilter}
+            onChange={e => setCauseFilter(e.target.value)}
           >
-            {label}
-            {counts[key] !== undefined && (
-              <span className="tab-count">{counts[key]}</span>
-            )}
-          </button>
-        ))}
+            <option value="">All Root Causes</option>
+            {Object.keys(ROOT_CAUSE_SHORT).map(k => (
+              <option key={k} value={k}>{ROOT_CAUSE_SHORT[k]}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Table */}
@@ -145,7 +169,16 @@ export default function EventFeed() {
                 </tr>
               )}
               {visible.slice(0, 200).map((e) => (
-                <tr key={e.event_id ?? e.decision_id}>
+                <tr 
+                  key={e.event_id ?? e.decision_id} 
+                  onClick={() => {
+                    if (e.decision_id) {
+                      setInspectDecisionId(e.decision_id);
+                      setInspectAmount(e.amount);
+                    }
+                  }}
+                  style={{ cursor: e.decision_id ? 'pointer' : 'default' }}
+                >
                   <td className="mono">{e.account_id}</td>
                   <td>
                     <span className="badge neutral">
@@ -176,6 +209,14 @@ export default function EventFeed() {
           </div>
         )}
       </div>
+
+      {inspectDecisionId && (
+        <DecisionInspector 
+          decisionId={inspectDecisionId} 
+          eventAmount={inspectAmount} 
+          onClose={() => setInspectDecisionId(null)} 
+        />
+      )}
     </div>
   );
 }
