@@ -22,11 +22,11 @@ from sqlalchemy import text
 from .data_generator import generate_batch, simulate_baseline
 from .root_cause import classify
 from .context_builder import build_context
-from .bandit import select_action, get_posterior_means, ARMS
+from .bandit import select_action, get_posterior_means, eligible_arms
 from .survival_gate import should_hold
 from .knapsack import schedule, compute_ev
 from .executor import execute_action
-from .constants import ACTION_COSTS, RETRY_ARMS
+from .constants import ACTION_COSTS
 
 
 def run_batch_cycle(db: Session, n_events: int = 200) -> dict:
@@ -126,13 +126,10 @@ def run_batch_cycle(db: Session, n_events: int = 200) -> dict:
             continue
 
         # Stage 3: bandit arm selection
-        eligible_arms = [a for a in ARMS if retryable or a not in RETRY_ARMS]
+        forced = bool(hold_reason and "forced escalation" in hold_reason)
+        arms   = eligible_arms(root_cause, retryable, forced)
 
-        # Forced escalation bypasses bandit sampling
-        if hold_reason and "forced escalation" in hold_reason:
-            eligible_arms = ["escalate_human_call"]
-
-        chosen_arm, sampled_probs = select_action(context_key, eligible_arms, db)
+        chosen_arm, sampled_probs = select_action(context_key, arms, db)
 
         if chosen_arm is None:
             continue  # degenerate case — skip
@@ -153,7 +150,7 @@ def run_batch_cycle(db: Session, n_events: int = 200) -> dict:
             "is_call":       chosen_arm == "escalate_human_call",
             "is_contact":    cost > 0,
             "sampled_probs": sampled_probs,
-            "eligible_arms": eligible_arms,
+            "eligible_arms": arms,
             "stop_reason":   hold_reason,
         })
 

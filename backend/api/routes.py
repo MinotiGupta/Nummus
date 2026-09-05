@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from db.connection import get_db
 from engine.batch_runner import run_batch_cycle
+from engine.bandit import get_bandit_stats
+from engine.context_builder import decode_context, context_label
 import json
 
 router = APIRouter()
@@ -91,3 +93,40 @@ def get_posteriors(context_key: str = None, db: Session = Depends(get_db)):
         grouped[ctx].append(dict(r))
         
     return grouped
+
+
+@router.get("/bandit/contexts")
+def get_bandit_contexts(db: Session = Depends(get_db)):
+    """
+    Return all known context keys with their human-readable labels.
+    Used to populate the convergence view dropdown.
+    """
+    rows = db.execute(
+        text("SELECT DISTINCT context_key FROM bandit_posteriors ORDER BY context_key")
+    ).fetchall()
+    return [
+        {
+            "context_key": row.context_key,
+            "label":       context_label(row.context_key),
+            "decoded":     decode_context(row.context_key),
+        }
+        for row in rows
+    ]
+
+
+@router.get("/bandit/stats/{context_key:path}")
+def get_stats(context_key: str, db: Session = Depends(get_db)):
+    """
+    Return rich per-arm statistics for a context, including posterior mean,
+    trial count, and 90% credible interval bands.
+    Powers the convergence view bar chart.
+    """
+    stats = get_bandit_stats(context_key, db)
+    if not stats:
+        raise HTTPException(404, f"No data for context: {context_key}")
+    return {
+        "context_key": context_key,
+        "label":       context_label(context_key),
+        "decoded":     decode_context(context_key),
+        "arms":        stats,
+    }

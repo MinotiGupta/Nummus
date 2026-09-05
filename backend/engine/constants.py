@@ -68,10 +68,10 @@ GROUND_TRUTH: dict[tuple[str, str], float] = {
     ("stolen_lost_card",    "send_reminder_sms"):         0.12,
     ("stolen_lost_card",    "escalate_human_call"):       0.20,
     ("stolen_lost_card",    "hold_no_action"):            0.02,
-    # processor_error: best arm is retry_immediate (0.78) — technical failure
-    ("processor_error",     "retry_immediate"):           0.78,  # ← best
-    ("processor_error",     "retry_delayed_2h"):          0.65,
-    ("processor_error",     "retry_delayed_24h"):         0.50,
+    # processor_error: best arm is retry_immediate (0.78) — technical failure, retry fast
+    ("processor_error",     "retry_immediate"):           0.78,  # <- best
+    ("processor_error",     "retry_delayed_2h"):          0.48,  # widened gap vs 0.65
+    ("processor_error",     "retry_delayed_24h"):         0.32,
     ("processor_error",     "offer_alt_payment_method"):  0.20,
     ("processor_error",     "send_reminder_email"):       0.10,
     ("processor_error",     "send_reminder_sms"):         0.10,
