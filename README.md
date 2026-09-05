@@ -2,6 +2,9 @@
 
 Nummus is an autonomous agent designed to detect, diagnose, and recover revenue at risk from payment failures and checkout abandonments. Instead of relying on static retry rules, the system employs Contextual Bandits and Knapsack Optimization to dynamically learn the optimal intervention strategy for each specific customer context, balancing Expected Value (EV) against strict operational budgets.
 
+## Live Demo
+**[View the Live Dashboard](https://nummus-six.vercel.app/)**
+
 ## Architecture Overview
 
 The system is built on a decoupled architecture featuring a Python/FastAPI backend for algorithmic orchestration and a React/Vite frontend for real-time observability and audit compliance.
