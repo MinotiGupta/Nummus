@@ -15,6 +15,11 @@ attempt, outcome, policy, and audit tables at startup. Set `DATABASE_URL` to a
 PostgreSQL SQLAlchemy URL to use PostgreSQL; without it, local runs continue to
 use SQLite. See [`docs/database.md`](docs/database.md) for the schema and setup.
 
+Payment failures are classified by a deterministic diagnosis engine before
+context construction. Razorpay error reasons and legacy decline codes map into
+explicit categories; unmatched values stay `UNKNOWN`. See
+[`docs/failure-diagnosis.md`](docs/failure-diagnosis.md).
+
 Nummus is an autonomous agent designed to detect, diagnose, and recover revenue at risk from payment failures and checkout abandonments. Instead of relying on static retry rules, the system employs Contextual Bandits and Knapsack Optimization to dynamically learn the optimal intervention strategy for each specific customer context, balancing Expected Value (EV) against strict operational budgets.
 
 ## Live Demo

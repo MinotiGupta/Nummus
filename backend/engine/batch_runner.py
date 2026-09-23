@@ -1,15 +1,14 @@
 """
 batch_runner.py — Phase 7: Main Pipeline Orchestrator
 
-Runs one full batch cycle through all 8 stages:
-    1. Generate synthetic events (data_generator)
-    2. Classify root cause + build context vector (root_cause, context_builder)
-    3. Survival gate — hold, force-escalate, or pass (survival_gate)
-    4. Bandit action selection per event (bandit.select_action)
-    5. Compute EV and assemble scheduler candidates (knapsack.compute_ev)
-    6. Budget-constrained selection (knapsack.schedule)
-    7. Simulate execution + write audit trail (executor.execute_action)
-    8. Write batch_runs summary row
+Runs a batch through the decision flow:
+    1. Generate synthetic payment events (data_generator)
+    2. Diagnose the raw failure code (diagnosis)
+    3. Build context (context_builder), retaining legacy cause for simulation
+    4. Apply survival gate, select a bandit action, and estimate EV
+    5. Schedule within budgets
+    6. Simulate execution, write audit records, and update the bandit
+    7. Write the batch summary
 
 Returns a summary dict that the API layer serialises to JSON.
 """
@@ -20,7 +19,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from .data_generator import generate_batch, simulate_baseline
-from .root_cause import classify
+from .diagnosis import diagnose_failure
 from .context_builder import build_context
 from .bandit import select_action, get_posterior_means, eligible_arms
 from .survival_gate import should_hold
@@ -101,11 +100,17 @@ def run_batch_cycle(db: Session, n_events: int = 200) -> dict:
         root_cause = e["root_cause"]
         retryable  = e["retryable"]
 
-        # Stage 2: context vector
-        context_key = build_context(e, root_cause)
+        # Explicit deterministic diagnosis stage. The legacy root-cause value
+        # remains available to the current simulator and outcome matrix.
+        diagnosis = diagnose_failure(e)
+        e["diagnosis_category"] = diagnosis.category
+        e["diagnosis_code"] = diagnosis.matched_code
+
+        # Context follows deterministic failure diagnosis.
+        context_key = build_context(e, root_cause, diagnosis.category)
         e["context_key"] = context_key
 
-        # Stage 4: survival gate
+        # Safety checks run before selecting an action.
         acc = db.execute(
             text("SELECT * FROM accounts WHERE account_id = :aid"),
             {"aid": e["account_id"]},
@@ -126,7 +131,7 @@ def run_batch_cycle(db: Session, n_events: int = 200) -> dict:
             gated_count += 1
             continue
 
-        # Stage 3: bandit arm selection
+        # Bandit arm selection
         forced = bool(hold_reason and "forced escalation" in hold_reason)
         arms   = eligible_arms(root_cause, retryable, forced)
 
@@ -135,7 +140,7 @@ def run_batch_cycle(db: Session, n_events: int = 200) -> dict:
         if chosen_arm is None:
             continue  # degenerate case — skip
 
-        # Stage 5: EV using posterior mean (stable ranking)
+        # EV using posterior mean (stable ranking)
         posterior_means = get_posterior_means(context_key, db)
         mean_prob = posterior_means.get(chosen_arm, sampled_probs.get(chosen_arm, 0.1))
         ev   = compute_ev(e["amount"], mean_prob, chosen_arm)

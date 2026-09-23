@@ -11,7 +11,7 @@ Design rationale (from PRD §5.2):
   explainability over granularity.
 
 Context key format:
-  "{root_cause}|{amount_tier}|{tenure}|{day_of_week}"
+  "{root_cause}|{amount_tier}|{tenure}|{day_of_week}|{diagnosis_category}"
 
   Example: "insufficient_funds|med|returning|tue"
 
@@ -63,7 +63,11 @@ def _day_of_week(timestamp_str: Optional[str]) -> str:
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 
-def build_context(event: dict, root_cause: str) -> str:
+def build_context(
+    event: dict,
+    root_cause: str,
+    diagnosis_category: Optional[str] = None,
+) -> str:
     """
     Build a discrete context key for the bandit from a raw event dict.
 
@@ -74,16 +78,22 @@ def build_context(event: dict, root_cause: str) -> str:
 
     Args:
         event:      Event dict (from data_generator or DB row).
-        root_cause: Pre-classified root cause string.
+        root_cause: Pre-classified legacy root cause string.
+        diagnosis_category: Optional deterministic diagnosis category. When
+                            supplied, it becomes an explicit context feature.
 
     Returns:
-        Context key string, e.g. "insufficient_funds|med|returning|tue"
+        Context key string, e.g.
+        "insufficient_funds|med|returning|tue|INSUFFICIENT_FUNDS".
     """
     tier    = _amount_tier(float(event.get("amount", 0)))
     tenure  = event.get("tenure", "unknown")
     day     = _day_of_week(event.get("timestamp"))
 
-    return f"{root_cause}|{tier}|{tenure}|{day}"
+    context = f"{root_cause}|{tier}|{tenure}|{day}"
+    if diagnosis_category:
+        context += f"|{diagnosis_category}"
+    return context
 
 
 def decode_context(context_key: str) -> dict:
@@ -92,7 +102,7 @@ def decode_context(context_key: str) -> dict:
     Useful for the dashboard's convergence view labels.
 
     Returns:
-        { root_cause, amount_tier, tenure, day_of_week }
+        { root_cause, amount_tier, tenure, day_of_week, diagnosis_category }
         Any missing parts default to "unknown".
     """
     parts = context_key.split("|")
@@ -101,20 +111,25 @@ def decode_context(context_key: str) -> dict:
         "amount_tier":  parts[1] if len(parts) > 1 else "unknown",
         "tenure":       parts[2] if len(parts) > 2 else "unknown",
         "day_of_week":  parts[3] if len(parts) > 3 else "unknown",
+        "diagnosis_category": parts[4] if len(parts) > 4 else "unknown",
     }
 
 
 def context_label(context_key: str) -> str:
     """
     Human-readable one-line label for a context key.
-    E.g. "Insufficient Funds · Med · Returning · Tue"
+    E.g. "Insufficient Funds · Med · Returning · Tue · Diagnosis: Insufficient Funds"
     """
     parts = decode_context(context_key)
     cause  = parts["root_cause"].replace("_", " ").title()
     tier   = parts["amount_tier"].title()
     tenure = parts["tenure"].title()
     day    = parts["day_of_week"].title()
-    return f"{cause} · {tier} · {tenure} · {day}"
+    label = f"{cause} · {tier} · {tenure} · {day}"
+    diagnosis = parts["diagnosis_category"]
+    if diagnosis != "unknown":
+        label += f" · Diagnosis: {diagnosis.replace('_', ' ').title()}"
+    return label
 
 
 # ─── Standalone test ──────────────────────────────────────────────────────────

@@ -21,7 +21,7 @@ Inject an event. The mock endpoint takes `amount` in major currency units
 Invoke-RestMethod -Method Post `
   -Uri http://localhost:8000/api/mock-webhook `
   -ContentType "application/json" `
-  -Body '{"event":"payment.failed","payment_id":"pay_mock_123","order_id":"order_123","customer_id":"cust_456","amount":2499,"currency":"INR","method":"card","error_code":"BAD_REQUEST_ERROR","timestamp":"2026-09-24T12:30:00Z"}'
+  -Body '{"event":"payment.failed","payment_id":"pay_mock_123","order_id":"order_123","customer_id":"cust_456","amount":2499,"currency":"INR","method":"card","error_code":"BAD_REQUEST_ERROR","error_reason":"insufficient_funds","timestamp":"2026-09-24T12:30:00Z"}'
 ```
 
 The response includes an `event_id`. Read the persisted row with:

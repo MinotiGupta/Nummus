@@ -36,6 +36,7 @@ from engine.bandit import get_bandit_stats
 from engine.context_builder import decode_context, context_label
 from engine.executor import get_cycle_audit_summary
 from engine.event_ingestion import normalize_event_timestamp, persist_payment_failed
+from engine.diagnosis import diagnose_failure
 
 router = APIRouter()
 
@@ -52,6 +53,10 @@ class MockFailedPayment(BaseModel):
     currency: str = Field(min_length=3, max_length=3)
     method: str | None = None
     error_code: str | None = None
+    error_reason: str | None = None
+    error_source: str | None = None
+    error_step: str | None = None
+    decline_code: str | None = None
     timestamp: datetime
 
 
@@ -89,8 +94,13 @@ def _store_razorpay_payload(db: Session, event_id: str, payload: dict, source: s
         "currency": currency,
         "method": payment.get("method"),
         "error_code": payment.get("error_code"),
+        "error_reason": payment.get("error_reason"),
+        "error_source": payment.get("error_source"),
+        "error_step": payment.get("error_step"),
         "timestamp": normalized_timestamp,
     }
+    diagnosis = diagnose_failure(normalized).to_dict()
+    normalized["diagnosis"] = diagnosis
     inserted = persist_payment_failed(
         db,
         event_id=event_id,
@@ -106,7 +116,12 @@ def _store_razorpay_payload(db: Session, event_id: str, payload: dict, source: s
         event_timestamp=normalized_timestamp,
         safe_payload=normalized,
     )
-    return {"received": True, "duplicate": not inserted, "event_id": event_id}
+    return {
+        "received": True,
+        "duplicate": not inserted,
+        "event_id": event_id,
+        "diagnosis": diagnosis,
+    }
 
 
 @router.post("/webhooks/razorpay")
@@ -160,8 +175,14 @@ def inject_mock_webhook(event: MockFailedPayment, db: Session = Depends(get_db))
         "currency": event.currency.upper(),
         "method": event.method,
         "error_code": event.error_code,
+        "error_reason": event.error_reason,
+        "error_source": event.error_source,
+        "error_step": event.error_step,
+        "decline_code": event.decline_code,
         "timestamp": event.timestamp.isoformat(),
     }
+    diagnosis = diagnose_failure(payload).to_dict()
+    payload["diagnosis"] = diagnosis
     inserted = persist_payment_failed(
         db,
         event_id=event_id,
@@ -177,7 +198,12 @@ def inject_mock_webhook(event: MockFailedPayment, db: Session = Depends(get_db))
         event_timestamp=event.timestamp.isoformat(),
         safe_payload=payload,
     )
-    return {"received": True, "duplicate": not inserted, "event_id": event_id}
+    return {
+        "received": True,
+        "duplicate": not inserted,
+        "event_id": event_id,
+        "diagnosis": diagnosis,
+    }
 
 
 @router.get("/webhook-events/{event_id}")
