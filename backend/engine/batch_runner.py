@@ -57,10 +57,11 @@ def run_batch_cycle(db: Session, n_events: int = 200) -> dict:
         # Upsert account (ignore if already exists — keeps accumulated history)
         db.execute(
             text("""
-                INSERT OR IGNORE INTO accounts
+                INSERT INTO accounts
                     (account_id, first_failure_at, contact_count, status, self_resolve_score)
                 VALUES
                     (:acc_id, :ts, 0, 'active', 0.3)
+                ON CONFLICT (account_id) DO NOTHING
             """),
             {"acc_id": e["account_id"], "ts": e["timestamp"]},
         )

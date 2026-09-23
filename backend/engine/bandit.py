@@ -14,7 +14,7 @@ Algorithm summary (PRD §5.3):
 
 Design choices:
   - scipy.stats.beta.rvs for sampling (vectorisable if needed at scale).
-  - INSERT OR IGNORE for safe initialisation (idempotent across restarts).
+  - ON CONFLICT DO NOTHING for safe initialisation on SQLite and PostgreSQL.
   - get_posterior_means() uses alpha/(alpha+beta) for EV ranking — stable,
     not noisy like a Thompson sample.
   - All arm eligibility logic lives here (eligible_arms()) so batch_runner
@@ -96,10 +96,11 @@ def get_posteriors(context_key: str, arms: list[str], db: Session) -> dict[str, 
 
         db.execute(
             text("""
-                INSERT OR IGNORE INTO bandit_posteriors
+                INSERT INTO bandit_posteriors
                     (context_key, arm, alpha, beta, updated_at)
                 VALUES
                     (:context_key, :arm, :alpha, :beta, :updated_at)
+                ON CONFLICT (context_key, arm) DO NOTHING
             """),
             new_rows,
         )

@@ -105,6 +105,84 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_webhook_events_payment_id
         ON webhook_events (payment_id);
         """))
+
+        # Persistent product state for payment recovery. Amount and cost fields
+        # use major currency units; inbound Razorpay amounts are converted from
+        # minor units before a payment row is created by the later workflow.
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS customers (
+            customer_id             TEXT PRIMARY KEY,
+            segment                 TEXT,
+            tenure                  TEXT,
+            previous_payments       INTEGER NOT NULL DEFAULT 0 CHECK (previous_payments >= 0),
+            previous_failures       INTEGER NOT NULL DEFAULT 0 CHECK (previous_failures >= 0),
+            avg_transaction_value   NUMERIC(14, 2) CHECK (avg_transaction_value >= 0),
+            preferred_method        TEXT,
+            created_at              TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at              TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        """))
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS payments (
+            payment_id      TEXT PRIMARY KEY,
+            customer_id     TEXT REFERENCES customers(customer_id) ON DELETE SET NULL,
+            amount          NUMERIC(14, 2) NOT NULL CHECK (amount >= 0),
+            currency        VARCHAR(3) NOT NULL,
+            method          TEXT,
+            status          TEXT NOT NULL,
+            failure_code    TEXT,
+            created_at      TIMESTAMP WITH TIME ZONE NOT NULL
+        );
+        """))
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS recovery_attempts (
+            attempt_id      TEXT PRIMARY KEY,
+            payment_id      TEXT NOT NULL REFERENCES payments(payment_id) ON DELETE CASCADE,
+            customer_id     TEXT REFERENCES customers(customer_id) ON DELETE SET NULL,
+            action          TEXT NOT NULL,
+            timestamp       TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            status          TEXT NOT NULL DEFAULT 'planned',
+            cost            NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (cost >= 0)
+        );
+        """))
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS recovery_outcomes (
+            attempt_id                  TEXT PRIMARY KEY REFERENCES recovery_attempts(attempt_id) ON DELETE CASCADE,
+            recovered                   BOOLEAN NOT NULL,
+            recovered_amount            NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (recovered_amount >= 0),
+            time_to_recovery_seconds    BIGINT CHECK (time_to_recovery_seconds >= 0),
+            failure_reason              TEXT
+        );
+        """))
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS policies (
+            policy_id           TEXT PRIMARY KEY,
+            action              TEXT NOT NULL UNIQUE,
+            max_attempts       INTEGER NOT NULL CHECK (max_attempts >= 0),
+            cooldown_seconds   INTEGER NOT NULL DEFAULT 0 CHECK (cooldown_seconds >= 0),
+            max_cost            NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (max_cost >= 0),
+            requires_human      BOOLEAN NOT NULL DEFAULT FALSE,
+            updated_at          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        """))
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            event_id        TEXT PRIMARY KEY,
+            actor           TEXT NOT NULL,
+            action          TEXT NOT NULL,
+            decision        TEXT NOT NULL,
+            reason          TEXT,
+            timestamp       TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            payment_id      TEXT REFERENCES payments(payment_id) ON DELETE SET NULL,
+            attempt_id      TEXT REFERENCES recovery_attempts(attempt_id) ON DELETE SET NULL
+        );
+        """))
+
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON payments (customer_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_payments_status_created ON payments (status, created_at)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_attempts_payment_time ON recovery_attempts (payment_id, timestamp)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_attempts_customer_time ON recovery_attempts (customer_id, timestamp)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_audit_logs_payment_time ON audit_logs (payment_id, timestamp)"))
         conn.commit()
 
 if __name__ == "__main__":

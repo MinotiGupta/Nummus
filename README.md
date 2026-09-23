@@ -10,6 +10,11 @@ The backend now accepts signed Razorpay `payment.failed` webhooks at
 it does not call the bandit or execute recovery actions. See
 [`docs/webhooks.md`](docs/webhooks.md) for setup and request examples.
 
+The backend now also creates the PostgreSQL-ready customer, payment, recovery
+attempt, outcome, policy, and audit tables at startup. Set `DATABASE_URL` to a
+PostgreSQL SQLAlchemy URL to use PostgreSQL; without it, local runs continue to
+use SQLite. See [`docs/database.md`](docs/database.md) for the schema and setup.
+
 Nummus is an autonomous agent designed to detect, diagnose, and recover revenue at risk from payment failures and checkout abandonments. Instead of relying on static retry rules, the system employs Contextual Bandits and Knapsack Optimization to dynamically learn the optimal intervention strategy for each specific customer context, balancing Expected Value (EV) against strict operational budgets.
 
 ## Live Demo
