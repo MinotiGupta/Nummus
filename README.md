@@ -1,5 +1,15 @@
 # Nummus: AI Revenue Recovery Agent
 
+## Payment event ingestion (new)
+
+The backend now accepts signed Razorpay `payment.failed` webhooks at
+`POST /api/webhooks/razorpay` and stores normalized, deduplicated events in
+`webhook_events`. For local development, enable `APP_ENV=development` and
+`ENABLE_MOCK_WEBHOOK=true`, then send a mock event to
+`POST /api/mock-webhook`. This ingestion layer currently stores events only;
+it does not call the bandit or execute recovery actions. See
+[`docs/webhooks.md`](docs/webhooks.md) for setup and request examples.
+
 Nummus is an autonomous agent designed to detect, diagnose, and recover revenue at risk from payment failures and checkout abandonments. Instead of relying on static retry rules, the system employs Contextual Bandits and Knapsack Optimization to dynamically learn the optimal intervention strategy for each specific customer context, balancing Expected Value (EV) against strict operational budgets.
 
 ## Live Demo

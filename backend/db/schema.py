@@ -79,6 +79,32 @@ def init_db():
             efficiency_vs_baseline      REAL
         );
         """))
+
+        # Inbound payment notifications are stored separately from the legacy
+        # synthetic events table. This lets the new event layer ship without
+        # changing the existing bandit pipeline or its schema assumptions.
+        conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS webhook_events (
+            event_id          TEXT PRIMARY KEY,
+            source            TEXT NOT NULL,
+            event_name        TEXT NOT NULL,
+            payment_id        TEXT NOT NULL,
+            order_id          TEXT,
+            customer_id       TEXT,
+            amount_minor      INTEGER NOT NULL,
+            currency          TEXT NOT NULL,
+            method            TEXT,
+            error_code        TEXT,
+            event_timestamp   TEXT NOT NULL,
+            received_at       TEXT NOT NULL,
+            payload_json      TEXT NOT NULL,
+            processing_status TEXT NOT NULL DEFAULT 'received'
+        );
+        """))
+        conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS idx_webhook_events_payment_id
+        ON webhook_events (payment_id);
+        """))
         conn.commit()
 
 if __name__ == "__main__":

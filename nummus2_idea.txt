@@ -1,0 +1,4 @@
+Nummus is an autonomous revenue-recovery system that detects failed payments, diagnoses the likely failure context, selects the lowest-cost effective recovery intervention, executes it through a controlled workflow, and learns from the resulting outcome.
+
+input -> decision -> action -> outcome -> learning 
+(core loop)

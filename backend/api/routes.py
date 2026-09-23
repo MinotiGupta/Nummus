@@ -17,7 +17,17 @@ Endpoint catalogue:
   GET  /bandit/stats/{context_key}      — rich per-arm stats for convergence view
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import hashlib
+import hmac
+import json
+import os
+import uuid
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from db.connection import get_db
@@ -25,9 +35,163 @@ from engine.batch_runner import run_batch_cycle
 from engine.bandit import get_bandit_stats
 from engine.context_builder import decode_context, context_label
 from engine.executor import get_cycle_audit_summary
-import json
+from engine.event_ingestion import normalize_event_timestamp, persist_payment_failed
 
 router = APIRouter()
+
+
+class MockFailedPayment(BaseModel):
+    """Development event shape; amount is expressed in major currency units."""
+
+    event_id: str | None = None
+    event: Literal["payment.failed"] = "payment.failed"
+    payment_id: str = Field(min_length=1)
+    order_id: str | None = None
+    customer_id: str | None = None
+    amount: Decimal = Field(gt=0)
+    currency: str = Field(min_length=3, max_length=3)
+    method: str | None = None
+    error_code: str | None = None
+    timestamp: datetime
+
+
+def _store_razorpay_payload(db: Session, event_id: str, payload: dict, source: str):
+    if payload.get("event") != "payment.failed":
+        raise HTTPException(status_code=422, detail="Only payment.failed events are accepted")
+    webhook_data = payload.get("payload")
+    payment_data = webhook_data.get("payment") if isinstance(webhook_data, dict) else None
+    payment = payment_data.get("entity") if isinstance(payment_data, dict) else None
+    if not isinstance(payment, dict):
+        raise HTTPException(status_code=422, detail="Missing payload.payment.entity")
+    try:
+        payment_id = payment["id"]
+        amount_minor = payment["amount"]
+        currency = payment["currency"]
+        event_timestamp = payload.get("created_at", payment.get("created_at"))
+        if not isinstance(payment_id, str) or not payment_id:
+            raise ValueError("payment id is invalid")
+        if isinstance(amount_minor, bool) or not isinstance(amount_minor, int) or amount_minor < 0:
+            raise ValueError("payment amount must be a non-negative integer in subunits")
+        if not isinstance(currency, str) or len(currency) != 3:
+            raise ValueError("payment currency is invalid")
+        if event_timestamp is None:
+            raise ValueError("event timestamp is missing")
+        normalized_timestamp = normalize_event_timestamp(event_timestamp)
+    except (KeyError, ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    normalized = {
+        "event": "payment.failed",
+        "payment_id": payment_id,
+        "order_id": payment.get("order_id"),
+        "customer_id": payment.get("customer_id"),
+        "amount_minor": amount_minor,
+        "currency": currency,
+        "method": payment.get("method"),
+        "error_code": payment.get("error_code"),
+        "timestamp": normalized_timestamp,
+    }
+    inserted = persist_payment_failed(
+        db,
+        event_id=event_id,
+        source=source,
+        event_name="payment.failed",
+        payment_id=payment_id,
+        order_id=payment.get("order_id"),
+        customer_id=payment.get("customer_id"),
+        amount_minor=amount_minor,
+        currency=currency,
+        method=payment.get("method"),
+        error_code=payment.get("error_code"),
+        event_timestamp=normalized_timestamp,
+        safe_payload=normalized,
+    )
+    return {"received": True, "duplicate": not inserted, "event_id": event_id}
+
+
+@router.post("/webhooks/razorpay")
+async def receive_razorpay_webhook(request: Request, db: Session = Depends(get_db)):
+    """Verify and store a Razorpay payment.failed webhook, without processing it."""
+    secret = os.environ.get("RAZORPAY_WEBHOOK_SECRET")
+    if not secret:
+        raise HTTPException(status_code=503, detail="Razorpay webhook secret is not configured")
+
+    raw_body = await request.body()
+    supplied_signature = request.headers.get("x-razorpay-signature", "")
+    expected_signature = hmac.new(
+        secret.encode("utf-8"), raw_body, hashlib.sha256
+    ).hexdigest()
+    if not supplied_signature or not hmac.compare_digest(expected_signature, supplied_signature):
+        raise HTTPException(status_code=401, detail="Invalid Razorpay webhook signature")
+
+    event_id = request.headers.get("x-razorpay-event-id")
+    if not event_id:
+        raise HTTPException(status_code=400, detail="Missing X-Razorpay-Event-Id header")
+    try:
+        payload = json.loads(raw_body)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Request body must be valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Webhook body must be a JSON object")
+    return _store_razorpay_payload(db, event_id, payload, "razorpay")
+
+
+@router.post("/mock-webhook")
+def inject_mock_webhook(event: MockFailedPayment, db: Session = Depends(get_db)):
+    """Inject a normalized development event when explicitly enabled."""
+    enabled = os.environ.get("ENABLE_MOCK_WEBHOOK", "false").lower() == "true"
+    app_env = os.environ.get("APP_ENV", "production").lower()
+    if not enabled or app_env not in {"development", "test"}:
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        amount_minor = int((event.amount * 100).quantize(Decimal("1")))
+    except (InvalidOperation, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="amount must have at most two decimal places") from exc
+    if Decimal(amount_minor) / 100 != event.amount:
+        raise HTTPException(status_code=422, detail="amount must have at most two decimal places")
+
+    event_id = event.event_id or f"mock_{uuid.uuid4()}"
+    payload = {
+        "event": event.event,
+        "payment_id": event.payment_id,
+        "order_id": event.order_id,
+        "customer_id": event.customer_id,
+        "amount_minor": amount_minor,
+        "currency": event.currency.upper(),
+        "method": event.method,
+        "error_code": event.error_code,
+        "timestamp": event.timestamp.isoformat(),
+    }
+    inserted = persist_payment_failed(
+        db,
+        event_id=event_id,
+        source="mock",
+        event_name=event.event,
+        payment_id=event.payment_id,
+        order_id=event.order_id,
+        customer_id=event.customer_id,
+        amount_minor=amount_minor,
+        currency=event.currency.upper(),
+        method=event.method,
+        error_code=event.error_code,
+        event_timestamp=event.timestamp.isoformat(),
+        safe_payload=payload,
+    )
+    return {"received": True, "duplicate": not inserted, "event_id": event_id}
+
+
+@router.get("/webhook-events/{event_id}")
+def get_webhook_event(event_id: str, db: Session = Depends(get_db)):
+    """Read an ingested event to make the event-layer demo inspectable."""
+    row = db.execute(
+        text("SELECT * FROM webhook_events WHERE event_id = :event_id"),
+        {"event_id": event_id},
+    ).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Webhook event not found")
+    result = dict(row)
+    result["payload"] = json.loads(result.pop("payload_json"))
+    return result
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────
